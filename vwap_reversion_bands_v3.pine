@@ -1,0 +1,127 @@
+//@version=6
+strategy("VWAP Reversion Bands [QuantForge]",
+     overlay = true,
+     initial_capital = 10000,
+     default_qty_type = strategy.percent_of_equity,
+     default_qty_value = 10,
+     commission_type = strategy.commission.percent,
+     commission_value = 0.05,
+     slippage = 2)
+
+// ============================================================
+// v3: structural redesign of the trade engine.
+// Entry: trend filter + price in the discount zone below the
+//        inner band + short-length RSI oversold (dip buying).
+// Exit:  mean touch (close crosses VWAP), OR time stop,
+//        OR wide catastrophic ATR stop. No anchor flush.
+// ============================================================
+
+// ---------- Inputs ----------
+anchorStr    = input.string("Week", "VWAP anchor", options = ["Day", "Week", "Month"], group = "VWAP")
+band1Mult    = input.float(1.0, "Inner band (st dev)",  step = 0.25, minval = 0.25, group = "VWAP")
+band2Mult    = input.float(2.0, "Outer band (st dev)",  step = 0.25, minval = 0.5,  group = "VWAP")
+warmupBars   = input.int(12,  "Warm-up bars after anchor", minval = 0, group = "VWAP")
+tradeDir     = input.string("Long only", "Trade direction", options = ["Long only", "Short only", "Both"], group = "Strategy")
+useTrend     = input.bool(true, "Use EMA trend filter", group = "Strategy")
+emaLen       = input.int(200, "Trend EMA length", minval = 10, group = "Strategy")
+rsiLen       = input.int(3,  "RSI length", minval = 2, group = "Strategy")
+rsiBuy       = input.float(25, "RSI oversold (longs)",  minval = 1, maxval = 50, group = "Strategy")
+rsiSell      = input.float(75, "RSI overbought (shorts)", minval = 50, maxval = 99, group = "Strategy")
+atrLen       = input.int(14,   "ATR length", minval = 1, group = "Risk")
+atrStopMult  = input.float(3.0, "Catastrophic stop (ATR mult)", step = 0.25, minval = 1.0, group = "Risk")
+maxBars      = input.int(20, "Time stop (bars in trade)", minval = 1, group = "Risk")
+startDate    = input.time(timestamp("1 Jan 2023 00:00 +0000"), "Start date", group = "Test window")
+endDate      = input.time(timestamp("1 Jan 2030 00:00 +0000"), "End date",   group = "Test window")
+
+// ---------- Anchored VWAP with deviation bands ----------
+anchorTF = anchorStr == "Day" ? "D" : anchorStr == "Week" ? "W" : "M"
+newAnchor = timeframe.change(anchorTF)
+
+src = hlc3
+var float sumPV  = 0.0
+var float sumV   = 0.0
+var float sumPV2 = 0.0
+var int   barsInAnchor = 0
+
+if newAnchor
+    sumPV  := 0.0
+    sumV   := 0.0
+    sumPV2 := 0.0
+    barsInAnchor := 0
+else
+    barsInAnchor += 1
+
+sumPV  += src * volume
+sumV   += volume
+sumPV2 += src * src * volume
+
+vwapVal  = sumV > 0 ? sumPV / sumV : src
+variance = sumV > 0 ? math.max(sumPV2 / sumV - vwapVal * vwapVal, 0.0) : 0.0
+dev      = math.sqrt(variance)
+
+upper1 = vwapVal + band1Mult * dev
+upper2 = vwapVal + band2Mult * dev
+lower1 = vwapVal - band1Mult * dev
+lower2 = vwapVal - band2Mult * dev
+
+// ---------- Filters ----------
+atrVal = ta.atr(atrLen)
+emaVal = ta.ema(close, emaLen)
+rsiVal = ta.rsi(close, rsiLen)
+warm   = barsInAnchor >= warmupBars and dev > 0
+
+trendLongOK  = not useTrend or close > emaVal
+trendShortOK = not useTrend or close < emaVal
+
+inWindow   = time >= startDate and time <= endDate
+allowLong  = tradeDir != "Short only"
+allowShort = tradeDir != "Long only"
+
+// ---------- Signals: dip buying in trend direction ----------
+longSignal  = warm and trendLongOK  and close < lower1 and rsiVal < rsiBuy
+shortSignal = warm and trendShortOK and close > upper1 and rsiVal > rsiSell
+
+var float entryAtr = na
+var int   entryBar = na
+
+if longSignal and allowLong and inWindow and strategy.position_size == 0
+    strategy.entry("Long", strategy.long)
+    entryAtr := atrVal
+    entryBar := bar_index
+
+if shortSignal and allowShort and inWindow and strategy.position_size == 0
+    strategy.entry("Short", strategy.short)
+    entryAtr := atrVal
+    entryBar := bar_index
+
+// ---------- Exits ----------
+if strategy.position_size > 0
+    strategy.exit("Long stop", from_entry = "Long",
+         stop = strategy.position_avg_price - atrStopMult * entryAtr)
+    if close >= vwapVal
+        strategy.close("Long", comment = "Mean touch")
+    else if bar_index - entryBar >= maxBars
+        strategy.close("Long", comment = "Time stop")
+
+if strategy.position_size < 0
+    strategy.exit("Short stop", from_entry = "Short",
+         stop = strategy.position_avg_price + atrStopMult * entryAtr)
+    if close <= vwapVal
+        strategy.close("Short", comment = "Mean touch")
+    else if bar_index - entryBar >= maxBars
+        strategy.close("Short", comment = "Time stop")
+
+// ---------- Visuals ----------
+pVwap = plot(vwapVal, "VWAP",    color = color.new(color.orange, 0), linewidth = 2)
+pU1   = plot(upper1,  "Upper 1", color = color.new(color.teal, 60))
+pU2   = plot(upper2,  "Upper 2", color = color.new(color.teal, 20))
+pL1   = plot(lower1,  "Lower 1", color = color.new(color.teal, 60))
+pL2   = plot(lower2,  "Lower 2", color = color.new(color.teal, 20))
+plot(emaVal, "Trend EMA", color = color.new(color.purple, 50))
+
+fill(pU1, pU2, color = color.new(color.red,   88), title = "Upper zone")
+fill(pL1, pL2, color = color.new(color.green, 88), title = "Lower zone")
+
+// ---------- Alerts ----------
+alertcondition(longSignal,  "Long dip signal",  "Discount zone dip with trend and RSI confluence")
+alertcondition(shortSignal, "Short rip signal", "Premium zone rip with trend and RSI confluence")
