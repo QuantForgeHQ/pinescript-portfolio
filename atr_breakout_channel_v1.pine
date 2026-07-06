@@ -1,0 +1,78 @@
+//@version=6
+strategy("ATR Breakout Channel [QuantForge]",
+     overlay = true,
+     initial_capital = 10000,
+     default_qty_type = strategy.percent_of_equity,
+     default_qty_value = 10,
+     commission_type = strategy.commission.percent,
+     commission_value = 0.05,
+     slippage = 2)
+
+// ============================================================
+// ATR Breakout Channel - QuantForge portfolio demo
+// Trend-following engine:
+// Entry: close breaks the prior N-bar extreme (confirmed bar),
+//        in the direction of the long-term EMA trend.
+// Exit:  ratcheting ATR trailing stop (chandelier style).
+//        Initial stop frozen at entry, then trails, never loosens.
+// No repainting: channel uses prior-bar extremes only.
+// ============================================================
+
+// ---------- Inputs ----------
+donLen      = input.int(20,  "Breakout channel length", minval = 5, group = "Entry")
+tradeDir    = input.string("Both", "Trade direction", options = ["Long only", "Short only", "Both"], group = "Entry")
+useTrend    = input.bool(true, "Use EMA trend filter", group = "Entry")
+emaLen      = input.int(200, "Trend EMA length", minval = 10, group = "Entry")
+atrLen      = input.int(14,  "ATR length", minval = 1, group = "Risk")
+trailMult   = input.float(3.0, "Trailing stop (ATR mult)", step = 0.25, minval = 0.5, group = "Risk")
+startDate   = input.time(timestamp("1 Jan 2023 00:00 +0000"), "Start date", group = "Test window")
+endDate     = input.time(timestamp("1 Jan 2030 00:00 +0000"), "End date",   group = "Test window")
+
+// ---------- Channel and filters ----------
+chanHigh = ta.highest(high, donLen)[1]
+chanLow  = ta.lowest(low,  donLen)[1]
+atrVal   = ta.atr(atrLen)
+emaVal   = ta.ema(close, emaLen)
+
+trendLongOK  = not useTrend or close > emaVal
+trendShortOK = not useTrend or close < emaVal
+
+inWindow   = time >= startDate and time <= endDate
+allowLong  = tradeDir != "Short only"
+allowShort = tradeDir != "Long only"
+
+longSignal  = close > chanHigh and trendLongOK
+shortSignal = close < chanLow  and trendShortOK
+
+// ---------- Entries ----------
+if longSignal and allowLong and inWindow and strategy.position_size == 0
+    strategy.entry("Long", strategy.long)
+
+if shortSignal and allowShort and inWindow and strategy.position_size == 0
+    strategy.entry("Short", strategy.short)
+
+// ---------- Ratcheting ATR trailing stop ----------
+var float trailStop = na
+
+if strategy.position_size > 0
+    candidate = close - trailMult * atrVal
+    trailStop := na(trailStop) ? candidate : math.max(trailStop, candidate)
+    strategy.exit("Long trail", from_entry = "Long", stop = trailStop)
+else if strategy.position_size < 0
+    candidate = close + trailMult * atrVal
+    trailStop := na(trailStop) ? candidate : math.min(trailStop, candidate)
+    strategy.exit("Short trail", from_entry = "Short", stop = trailStop)
+else
+    trailStop := na
+
+// ---------- Visuals ----------
+pH = plot(chanHigh, "Channel high", color = color.new(color.teal, 30))
+pL = plot(chanLow,  "Channel low",  color = color.new(color.teal, 30))
+fill(pH, pL, color = color.new(color.teal, 92), title = "Channel")
+plot(emaVal, "Trend EMA", color = color.new(color.purple, 50))
+plot(strategy.position_size != 0 ? trailStop : na, "Trailing stop",
+     color = color.new(color.red, 0), style = plot.style_linebr, linewidth = 2)
+
+// ---------- Alerts ----------
+alertcondition(longSignal,  "Long breakout",  "Close broke above the N-bar channel high with trend filter passed")
+alertcondition(shortSignal, "Short breakout", "Close broke below the N-bar channel low with trend filter passed")
