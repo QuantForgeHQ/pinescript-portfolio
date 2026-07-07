@@ -12,6 +12,8 @@ Anchored VWAP with standard deviation bands. Long-only dip-buying engine:
 EMA trend filter, short-length RSI confluence, mean-touch exit, time stop,
 catastrophic ATR stop. Tested on SPY 1h, Jan 2023 to Jul 2026, with 0.05%
 commission and 2 ticks slippage per side.
+![VWAP Reversion Bands chart](assets/vwap_reversion_bands_chart_1280x769.png)
+![VWAP Reversion Bands backtest](assets/vwap_reversion_bands_tester_1280x769.png)
 
 ### ATR Breakout Channel (atr_breakout_channel_v1.pine)
 Donchian-style breakout with an EMA trend gate and a ratcheting
@@ -21,6 +23,8 @@ only tightens, never loosens. Tested on BTCUSDT 4h, Jan 2024 to Jul
 engine tested flat-to-negative on SPY 1h over the same period: gap-
 prone session charts are poor terrain for breakout systems, and we
 report that rather than hide it.
+![ATR Breakout Channel chart](assets/atr_breakout_channel_chart_1280x769.png)
+![ATR Breakout Channel backtest](assets/atr_breakout_channel_tester_1280x769.png)
 
 ### Multi-Condition Alert Manager (multi_condition_alert_manager_v1.pine)
 Utility indicator that unifies EMA cross, price level, and RSI alerts
@@ -30,6 +34,7 @@ validated externally). Includes an on-chart status table showing which
 modules are armed. JSON is built by string concatenation because
 str.format treats braces as placeholder syntax and fails at runtime on
 JSON-shaped strings.
+![Alert Manager chart](assets/multi_condition_alert_manager_chart_1280x769.png)
 
 Nothing in this repository is financial advice. These are programming
 demonstrations. Trading involves substantial risk of loss.
