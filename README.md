@@ -22,5 +22,14 @@ engine tested flat-to-negative on SPY 1h over the same period: gap-
 prone session charts are poor terrain for breakout systems, and we
 report that rather than hide it.
 
+### Multi-Condition Alert Manager (multi_condition_alert_manager_v1.pine)
+Utility indicator that unifies EMA cross, price level, and RSI alerts
+behind a single "Any alert() function call" alert, designed to emit
+webhook-ready JSON payloads on confirmed bars only (payload format
+validated externally). Includes an on-chart status table showing which
+modules are armed. JSON is built by string concatenation because
+str.format treats braces as placeholder syntax and fails at runtime on
+JSON-shaped strings.
+
 Nothing in this repository is financial advice. These are programming
 demonstrations. Trading involves substantial risk of loss.
