@@ -1,0 +1,89 @@
+//@version=6
+indicator("Multi-Condition Alert Manager [QuantForge]", overlay = true)
+
+// ============================================================
+// Multi-Condition Alert Manager - QuantForge portfolio demo
+// Three independent, toggleable alert conditions:
+//   1. EMA cross (fast over/under slow)
+//   2. Price level cross (user-defined line)
+//   3. RSI overbought / oversold
+// Fires webhook-ready JSON via alert() on confirmed bars only.
+// Setup: create ONE alert on this indicator with the condition
+// "Any alert() function call". All enabled signals route
+// through it with a machine-readable payload.
+// Note: JSON is built by string concatenation on purpose.
+// str.format treats { and } as placeholder syntax and fails
+// at runtime on JSON-shaped strings.
+// ============================================================
+
+// ---------- Inputs ----------
+useEmaX   = input.bool(true,  "Enable EMA cross alerts",  group = "EMA cross")
+emaFastL  = input.int(20,  "Fast EMA", minval = 1, group = "EMA cross")
+emaSlowL  = input.int(50,  "Slow EMA", minval = 2, group = "EMA cross")
+useLevel  = input.bool(true,  "Enable price level alerts", group = "Price level")
+levelPx   = input.float(0.0, "Price level (0 = off)", minval = 0, group = "Price level")
+useRsi    = input.bool(true,  "Enable RSI alerts", group = "RSI")
+rsiL      = input.int(14, "RSI length", minval = 2, group = "RSI")
+rsiOB     = input.float(70, "Overbought", minval = 50, maxval = 99, group = "RSI")
+rsiOS     = input.float(30, "Oversold",  minval = 1,  maxval = 50, group = "RSI")
+
+// ---------- Conditions (confirmed bars only) ----------
+emaFast = ta.ema(close, emaFastL)
+emaSlow = ta.ema(close, emaSlowL)
+rsiVal  = ta.rsi(close, rsiL)
+
+emaCrossUp   = useEmaX and ta.crossover(emaFast, emaSlow)
+emaCrossDn   = useEmaX and ta.crossunder(emaFast, emaSlow)
+levelCrossUp = useLevel and levelPx > 0 and ta.crossover(close, levelPx)
+levelCrossDn = useLevel and levelPx > 0 and ta.crossunder(close, levelPx)
+rsiOverB     = useRsi and ta.crossover(rsiVal, rsiOB)
+rsiOverS     = useRsi and ta.crossunder(rsiVal, rsiOS)
+
+// ---------- Webhook-ready JSON payloads (built by concatenation) ----------
+jsonMsg(string signal, string detail) =>
+    "{\"ticker\":\"" + syminfo.ticker +
+     "\",\"timeframe\":\"" + timeframe.period +
+     "\",\"signal\":\"" + signal +
+     "\",\"detail\":\"" + detail +
+     "\",\"price\":" + str.tostring(close, format.mintick) +
+     ",\"time\":\"" + str.format_time(time, "yyyy-MM-dd HH:mm", "UTC") + "\"}"
+
+if barstate.isconfirmed
+    if emaCrossUp
+        alert(jsonMsg("ema_cross_up",  "Fast EMA crossed above slow EMA"), alert.freq_once_per_bar_close)
+    if emaCrossDn
+        alert(jsonMsg("ema_cross_down","Fast EMA crossed below slow EMA"), alert.freq_once_per_bar_close)
+    if levelCrossUp
+        alert(jsonMsg("level_break_up",  "Close crossed above the price level"), alert.freq_once_per_bar_close)
+    if levelCrossDn
+        alert(jsonMsg("level_break_down","Close crossed below the price level"), alert.freq_once_per_bar_close)
+    if rsiOverB
+        alert(jsonMsg("rsi_overbought", "RSI crossed above the overbought line"), alert.freq_once_per_bar_close)
+    if rsiOverS
+        alert(jsonMsg("rsi_oversold",   "RSI crossed below the oversold line"), alert.freq_once_per_bar_close)
+
+// ---------- Visuals ----------
+plot(emaFast, "Fast EMA", color = color.new(color.teal, 0))
+plot(emaSlow, "Slow EMA", color = color.new(color.orange, 0))
+plot(useLevel and levelPx > 0 ? levelPx : na, "Level", color = color.new(color.gray, 30), style = plot.style_linebr, linewidth = 2)
+
+plotshape(emaCrossUp,   "EMA up",    style = shape.triangleup,   location = location.belowbar, color = color.teal,   size = size.small)
+plotshape(emaCrossDn,   "EMA down",  style = shape.triangledown, location = location.abovebar, color = color.orange, size = size.small)
+plotshape(levelCrossUp or levelCrossDn, "Level cross", style = shape.diamond, location = location.absolute, color = color.gray, size = size.tiny)
+plotshape(rsiOverB, "RSI OB", style = shape.xcross, location = location.abovebar, color = color.red,   size = size.tiny)
+plotshape(rsiOverS, "RSI OS", style = shape.xcross, location = location.belowbar, color = color.green, size = size.tiny)
+
+// ---------- Status table ----------
+var table t = table.new(position.top_right, 2, 4, border_width = 1)
+if barstate.islast
+    hdrBg = color.new(color.gray, 70)
+    onBg  = color.new(color.teal, 80)
+    offBg = color.new(color.gray, 90)
+    table.cell(t, 0, 0, "Alert module",  bgcolor = hdrBg, text_size = size.small)
+    table.cell(t, 1, 0, "State",         bgcolor = hdrBg, text_size = size.small)
+    table.cell(t, 0, 1, "EMA cross " + str.tostring(emaFastL) + "/" + str.tostring(emaSlowL), text_size = size.small)
+    table.cell(t, 1, 1, useEmaX ? "ON" : "OFF", bgcolor = useEmaX ? onBg : offBg, text_size = size.small)
+    table.cell(t, 0, 2, "Level " + (levelPx > 0 ? str.tostring(levelPx, format.mintick) : "unset"), text_size = size.small)
+    table.cell(t, 1, 2, useLevel and levelPx > 0 ? "ON" : "OFF", bgcolor = useLevel and levelPx > 0 ? onBg : offBg, text_size = size.small)
+    table.cell(t, 0, 3, "RSI " + str.tostring(rsiL) + " " + str.tostring(rsiOS, "#") + "/" + str.tostring(rsiOB, "#"), text_size = size.small)
+    table.cell(t, 1, 3, useRsi ? "ON" : "OFF", bgcolor = useRsi ? onBg : offBg, text_size = size.small)
